@@ -370,3 +370,6 @@ Makefile
 *.make
 *.sln
 *.vcxproj
+
+# Steamworks API (source non-redistributable by license)
+libs/steamworks
