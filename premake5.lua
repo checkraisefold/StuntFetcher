@@ -22,10 +22,14 @@ workspace "StuntFetcher"
 		
 	filter "platforms:Win64" 
 		system "windows"
+		defines { "OS_WINDOWS" }
+		links { "steam_api64" }
 		
 	filter "platforms:Linux64"
 		system "linux"
 		defines { "OS_UNIX" }
+		links { "steam_api" }
+		linkgroups "On"
 	
 	filter { "files:**.ixx" }
 		compileas "Module"
@@ -36,7 +40,7 @@ project "StuntFetcher"
     language "C++"
 	cppdialect "C++20"
     targetdir "bin/%{cfg.buildcfg}"
-	includedirs { "libs", "libs/websocketpp", "libs/asio/asio/include", "libs/spdlog/include" }
+	includedirs { "libs", "libs/websocketpp", "libs/asio/asio/include", "libs/spdlog/include", "libs/steamworks" }
 	libdirs { "libs" }
 	characterset "Unicode"
 	defines { "ASIO_STANDALONE", "SPDLOG_USE_STD_FORMAT" }

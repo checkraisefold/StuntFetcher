@@ -369,7 +369,8 @@ premake5.exe
 Makefile
 *.make
 *.sln
-*.vcxproj
+*.vcxproj*
 
 # Steamworks API (source non-redistributable by license)
-libs/steamworks
+libs/libsteam*
+libs/steam*
