@@ -15,7 +15,6 @@ using Client = websocketpp::client<websocketpp::config::asio_client>;
 int main() {
 	auto mainLogger = spdlog::stdout_color_mt("Main");
 	spdlog::set_default_logger(mainLogger);
-	spdlog::info("Testing 123");
 	
 	return 0;
 }
