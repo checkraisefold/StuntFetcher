@@ -12,6 +12,7 @@ workspace "StuntFetcher"
 	filter "Debug"
         defines { "DEBUG" }
         symbols "On"
+		debugdir "bin/Debug"
 
     filter "Release"
         defines { "NDEBUG" }
@@ -40,7 +41,7 @@ project "StuntFetcher"
     language "C++"
 	cppdialect "C++20"
     targetdir "bin/%{cfg.buildcfg}"
-	includedirs { "libs", "libs/websocketpp", "libs/asio/asio/include", "libs/spdlog/include", "libs/steamworks" }
+	includedirs { "libs", "libs/websocketpp", "libs/asio/asio/include", "libs/spdlog/include", "libs/steamworks", "libs/tomlplusplus/include" }
 	libdirs { "libs" }
 	characterset "Unicode"
 	defines { "ASIO_STANDALONE", "SPDLOG_USE_STD_FORMAT" }

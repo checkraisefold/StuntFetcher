@@ -1,8 +1,18 @@
-#include <websocketpp/config/asio_no_tls_client.hpp>
-#include <websocketpp/client.hpp>
+#include <websocketpp/config/asio_no_tls.hpp>
+#include <websocketpp/server.hpp>
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+
+#include <steam/steam_gameserver.h>
+
+#include <toml++/toml.h>
+
+#include <string>
+#include <string_view>
+#include <set>
+#include <chrono>
+#include <thread>
 
 #ifdef OS_UNIX
 #include <unistd.h>
@@ -10,11 +20,91 @@
 #include <windows.h>
 #endif
 
-using Client = websocketpp::client<websocketpp::config::asio_client>;
+using Server = websocketpp::server<websocketpp::config::asio>;
+using websocketpp::lib::placeholders::_1;
+using websocketpp::lib::placeholders::_2;
+using websocketpp::lib::bind;
+using websocketpp::connection_hdl;
 
-int main() {
+Server webServer;
+
+char getInfoMsg[7] = "StuP\x00\x1C";
+void* getStuntServer(std::uint64_t steamId, std::uint32_t& outSize) {
+	std::string result = "";
+	SteamGameServerNetworking()->SendP2PPacket(steamId, getInfoMsg, 7, k_EP2PSendUnreliable, 0);
+
+	std::uint32_t packetSize;
+	while (!(SteamGameServerNetworking()->IsP2PPacketAvailable(&packetSize, 0))) {
+		spdlog::debug("Waiting for reply!");
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	}
+
+	void* packetData = malloc(packetSize);
+	std::uint32_t bytesRead;
+	CSteamID steamRemote;
+	if (SteamGameServerNetworking()->ReadP2PPacket(packetData, packetSize, &bytesRead, &steamRemote, 0)) {
+	}
+	else {
+		spdlog::error("Failed to read P2P packet for {}!", steamId);
+	}
+
+	outSize = packetSize;
+	return packetData;
+}
+
+void messageHandler(Server* serv, connection_hdl hdl, Server::message_ptr msg) {
+	spdlog::info("Getting a stunt derby server");
+
+	std::uint32_t buffSize;
+	auto buff = getStuntServer(std::stoull(msg->get_payload()), buffSize);
+	webServer.send(hdl, buff, buffSize, websocketpp::frame::opcode::binary);
+
+	free(buff);
+}
+
+void initWebSock(std::uint16_t port) {
+	// Set log levels
+	webServer.set_access_channels(websocketpp::log::alevel::none);
+
+	// Init ASIO and bind message handler
+	webServer.init_asio();
+	webServer.set_message_handler(bind(&messageHandler, &webServer, _1, _2));
+
+	// Actually start the server
+	webServer.listen(port);
+	webServer.start_accept();
+	webServer.run();
+}
+
+int main() { 
+	using namespace std::literals;
+
 	auto mainLogger = spdlog::stdout_color_mt("Main");
 	spdlog::set_default_logger(mainLogger);
+
+	spdlog::info("Reading config.toml");
+	std::string bindHost;
+	std::uint16_t bindPort;
+	std::uint16_t websockPort;
+	try {
+		auto config = toml::parse_file("config.toml");
+		bindHost = std::string(config["server"]["host"].value_or("0.0.0.0"sv));
+		bindPort = config["server"]["port"].value_or(1337);
+		websockPort = config["websock"]["port"].value_or(1338);
+	}
+	catch (const toml::parse_error& err) {
+		spdlog::error("Toml file parse failed (does the file exist/is formatted properly?)! Exiting! {}", err.what());
+		return 0;
+	}
+
+	spdlog::info("Initializing Steam gameserver API");
+	auto hostAddr = ntohl(inet_addr(bindHost.c_str()));
+	SteamGameServer_Init(hostAddr, bindPort, STEAMGAMESERVER_QUERY_PORT_SHARED, eServerModeNoAuthentication, "1.0.0.0");
+	SteamGameServer()->LogOnAnonymous();
+
+	spdlog::info("Initializing websock server");
+	initWebSock(websockPort);
 	
+	SteamGameServer_Shutdown();
 	return 0;
 }

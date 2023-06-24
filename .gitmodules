@@ -7,3 +7,6 @@
 [submodule "libs/spdlog"]
 	path = libs/spdlog
 	url = https://github.com/gabime/spdlog.git
+[submodule "libs/tomlplusplus"]
+	path = libs/tomlplusplus
+	url = https://github.com/marzer/tomlplusplus.git
