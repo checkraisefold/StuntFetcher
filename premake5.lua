@@ -29,7 +29,7 @@ workspace "StuntFetcher"
 	filter "platforms:Linux64"
 		system "linux"
 		defines { "OS_UNIX" }
-		links { "steam_api" }
+		links { "pthread", "steam_api" }
 		linkgroups "On"
 		
 project "StuntFetcher"
