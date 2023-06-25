@@ -37,7 +37,7 @@ project "StuntFetcher"
     language "C++"
 	cppdialect "C++17"
     targetdir "bin/%{cfg.buildcfg}"
-	includedirs { "libs", "libs/websocketpp", "libs/asio/asio/include", "libs/spdlog/include", "libs/steamworks", "libs/tomlplusplus/include" }
+	includedirs { "libs", "libs/websocketpp", "libs/asio/asio/include", "libs/spdlog/include", "libs/steamworks/sdk/public", "libs/tomlplusplus/include" }
 	libdirs { "libs" }
 	characterset "Unicode"
 	defines { "ASIO_STANDALONE" }
