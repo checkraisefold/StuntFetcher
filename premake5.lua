@@ -31,19 +31,15 @@ workspace "StuntFetcher"
 		defines { "OS_UNIX" }
 		links { "steam_api" }
 		linkgroups "On"
-	
-	filter { "files:**.ixx" }
-		compileas "Module"
-		buildaction "ClCompile" -- thanks Premake for 30 minutes wasted
 		
 project "StuntFetcher"
     kind "ConsoleApp"
     language "C++"
-	cppdialect "C++20"
+	cppdialect "C++17"
     targetdir "bin/%{cfg.buildcfg}"
 	includedirs { "libs", "libs/websocketpp", "libs/asio/asio/include", "libs/spdlog/include", "libs/steamworks", "libs/tomlplusplus/include" }
 	libdirs { "libs" }
 	characterset "Unicode"
-	defines { "ASIO_STANDALONE", "SPDLOG_USE_STD_FORMAT" }
+	defines { "ASIO_STANDALONE" }
 
     files { "src/**.hpp", "src/**.h", "src/**.cpp", "src/**.ixx" }

@@ -29,20 +29,39 @@ using websocketpp::connection_hdl;
 Server webServer;
 
 char getInfoMsg[7] = "StuP\x00\x1C";
-void* getStuntServer(std::uint64_t steamId, std::uint32_t& outSize) {
+double steamTimeout = 0.0;
+void* getStuntServer(uint64 steamId, std::uint32_t& outSize) {
 	std::string result = "";
-	SteamGameServerNetworking()->SendP2PPacket(steamId, getInfoMsg, 7, k_EP2PSendUnreliable, 0);
+	CSteamID targetId = steamId;
+	SteamGameServerNetworking()->SendP2PPacket(targetId, getInfoMsg, 7, k_EP2PSendUnreliable, 0);
 
 	std::uint32_t packetSize;
+	double waitingFor = 0;
 	while (!(SteamGameServerNetworking()->IsP2PPacketAvailable(&packetSize, 0))) {
+		if (waitingFor >= steamTimeout) {
+			spdlog::warn("Steam networking timed out!");
+			return nullptr;
+		}
+
+		waitingFor += 0.05;
 		spdlog::debug("Waiting for reply!");
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 	}
 
 	void* packetData = malloc(packetSize);
+	if (!packetData) {
+		spdlog::error("Malloc failed for received packet!");
+		return nullptr;
+	}
+
 	std::uint32_t bytesRead;
 	CSteamID steamRemote;
 	if (SteamGameServerNetworking()->ReadP2PPacket(packetData, packetSize, &bytesRead, &steamRemote, 0)) {
+		if (steamRemote != targetId) {
+			spdlog::error("Received packet SteamID is not same as argument! Did you send too many websock messages?");
+			free(packetData);
+			return nullptr;
+		}
 	}
 	else {
 		spdlog::error("Failed to read P2P packet for {}!", steamId);
@@ -57,9 +76,11 @@ void messageHandler(Server* serv, connection_hdl hdl, Server::message_ptr msg) {
 
 	std::uint32_t buffSize;
 	auto buff = getStuntServer(std::stoull(msg->get_payload()), buffSize);
-	webServer.send(hdl, buff, buffSize, websocketpp::frame::opcode::binary);
-
-	free(buff);
+	if (buff) {
+		spdlog::info("Replied to Stunt Derby serv info request");
+		webServer.send(hdl, buff, buffSize, websocketpp::frame::opcode::binary);
+		free(buff);
+	}
 }
 
 void initWebSock(std::uint16_t port) {
@@ -82,6 +103,10 @@ int main() {
 	auto mainLogger = spdlog::stdout_color_mt("Main");
 	spdlog::set_default_logger(mainLogger);
 
+#ifdef DEBUG
+	spdlog::set_level(spdlog::level::debug);
+#endif
+
 	spdlog::info("Reading config.toml");
 	std::string bindHost;
 	std::uint16_t bindPort;
@@ -90,6 +115,7 @@ int main() {
 		auto config = toml::parse_file("config.toml");
 		bindHost = std::string(config["server"]["host"].value_or("0.0.0.0"sv));
 		bindPort = config["server"]["port"].value_or(1337);
+		steamTimeout = config["server"]["packetTimeout"].value_or(10.0);
 		websockPort = config["websock"]["port"].value_or(1338);
 	}
 	catch (const toml::parse_error& err) {
@@ -97,14 +123,15 @@ int main() {
 		return 0;
 	}
 
-	spdlog::info("Initializing Steam gameserver API");
+	spdlog::info("Initializing Steam gameserver API with port {}", bindPort);
 	auto hostAddr = ntohl(inet_addr(bindHost.c_str()));
 	SteamGameServer_Init(hostAddr, bindPort, STEAMGAMESERVER_QUERY_PORT_SHARED, eServerModeNoAuthentication, "1.0.0.0");
 	SteamGameServer()->LogOnAnonymous();
 
-	spdlog::info("Initializing websock server");
+	spdlog::info("Initializing websock server on port {}", websockPort);
 	initWebSock(websockPort);
 	
+	spdlog::info("Shutting down Steam gameserver");
 	SteamGameServer_Shutdown();
 	return 0;
 }
