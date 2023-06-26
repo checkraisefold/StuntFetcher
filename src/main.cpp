@@ -86,6 +86,10 @@ void messageHandler(Server* serv, connection_hdl hdl, Server::message_ptr msg) {
 		webServer.send(hdl, buff, buffSize, websocketpp::frame::opcode::binary);
 		free(buff);
 	}
+	else {
+		spdlog::warn("Replied to Stunt Derby serv info with failure");
+		webServer.send(hdl, "", 1, websocketpp::frame::opcode::text);
+	}
 }
 
 void initWebSock(std::string port, std::string host) {
