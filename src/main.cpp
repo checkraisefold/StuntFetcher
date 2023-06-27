@@ -13,6 +13,7 @@
 #include <set>
 #include <chrono>
 #include <thread>
+#include <mutex>
 
 #ifdef OS_UNIX
 #include <unistd.h>
@@ -28,46 +29,79 @@ using websocketpp::connection_hdl;
 
 Server webServer;
 
+struct requestData {
+	connection_hdl hdl;
+	std::chrono::high_resolution_clock::time_point time;
+};
+std::unordered_map<std::uint64_t, requestData> currentRequests;
+std::mutex steamMutex;
+
 char getInfoMsg[7] = "StuP\x00\x1C";
-double steamTimeout = 0.0;
-void* getStuntServer(CSteamID steamId, std::uint32_t& outSize) {
-	std::string result = "";
+std::atomic<double> steamTimeout = 0.0;
+void getStuntServer(CSteamID steamId, connection_hdl hdl) {
+	using namespace std::chrono;
+	std::lock_guard<std::mutex> lockSteam(steamMutex);
+
+	requestData data{hdl, high_resolution_clock::now()};
+	currentRequests.emplace(steamId.ConvertToUint64(), data);
 	SteamGameServerNetworking()->SendP2PPacket(steamId, getInfoMsg, 7, k_EP2PSendUnreliable, 0);
+}
 
+void steamPacketThread() {
 	std::uint32_t packetSize;
-	double waitingFor = 0;
-	while (!(SteamGameServerNetworking()->IsP2PPacketAvailable(&packetSize, 0))) {
-		if (waitingFor >= steamTimeout) {
-			spdlog::warn("Steam networking timed out!");
-			return nullptr;
-		}
-
-		waitingFor += 0.05;
-		spdlog::debug("Waiting for reply!");
+	while (true) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
-	}
+		steamMutex.lock();
+		for (auto iter = currentRequests.cbegin(); iter != currentRequests.cend();) {
+			using namespace std::chrono;
+			high_resolution_clock::time_point current = high_resolution_clock::now();
+			duration<double> time_span = duration_cast<duration<double>>(current - iter->second.time);
 
-	void* packetData = malloc(packetSize);
-	if (!packetData) {
-		spdlog::error("Malloc failed for received packet!");
-		return nullptr;
-	}
-
-	std::uint32_t bytesRead;
-	CSteamID steamRemote;
-	if (SteamGameServerNetworking()->ReadP2PPacket(packetData, packetSize, &bytesRead, &steamRemote, 0)) {
-		if (steamRemote != steamId) {
-			spdlog::error("Received packet SteamID is not same as argument! Did you send too many websock messages?");
-			free(packetData);
-			return nullptr;
+			if (time_span.count() >= steamTimeout) {
+				spdlog::warn("Serv info request timed out for {}!", iter->first);
+				iter = currentRequests.erase(iter);
+			}
+			else {
+				++iter;
+			}
 		}
-	}
-	else {
-		spdlog::error("Failed to read P2P packet for {}!", steamId.ConvertToUint64());
-	}
+		steamMutex.unlock();
 
-	outSize = packetSize;
-	return packetData;
+		if (!(SteamGameServerNetworking()->IsP2PPacketAvailable(&packetSize, 0))) {
+			continue;
+		}
+
+		void* packetData = malloc(packetSize);
+		if (!packetData) {
+			spdlog::error("Malloc failed for received packet!");
+			continue;
+		}
+
+		std::uint32_t bytesRead;
+		CSteamID steamRemote;
+		std::unordered_map<std::uint64_t, requestData>::const_iterator data;
+		if (SteamGameServerNetworking()->ReadP2PPacket(packetData, packetSize, &bytesRead, &steamRemote, 0)) {
+			steamMutex.lock();
+			if (currentRequests.find(steamRemote.ConvertToUint64()) == currentRequests.end()) {
+				spdlog::warn("Received packet SteamID is not in list! Ignoring packet!");
+				free(packetData);
+
+				steamMutex.unlock();
+				continue;
+			}
+			data = currentRequests.find(steamRemote.ConvertToUint64());
+			steamMutex.unlock();
+		}
+		else {
+			spdlog::error("Failed to read P2P packet for {}!", steamRemote.ConvertToUint64());
+			continue;
+		}
+
+		steamMutex.lock();
+		webServer.send(data->second.hdl, packetData, bytesRead, websocketpp::frame::opcode::binary);
+		currentRequests.erase(data);
+		steamMutex.unlock();
+	}
 }
 
 void messageHandler(Server* serv, connection_hdl hdl, Server::message_ptr msg) {
@@ -81,16 +115,7 @@ void messageHandler(Server* serv, connection_hdl hdl, Server::message_ptr msg) {
 		return;
 	}
 
-	auto buff = getStuntServer(targetId, buffSize);
-	if (buff) {
-		spdlog::info("Replied to Stunt Derby serv info request");
-		webServer.send(hdl, buff, buffSize, websocketpp::frame::opcode::binary);
-		free(buff);
-	}
-	else {
-		spdlog::warn("Replied to Stunt Derby serv info with failure");
-		webServer.send(hdl, "", 1, websocketpp::frame::opcode::text);
-	}
+	getStuntServer(targetId, hdl);
 }
 
 void initWebSock(std::string port, std::string host) {
@@ -139,6 +164,10 @@ int main() {
 	auto hostAddr = ntohl(inet_addr(bindHost.c_str()));
 	SteamGameServer_Init(hostAddr, bindPort, STEAMGAMESERVER_QUERY_PORT_SHARED, eServerModeNoAuthentication, "1.0.0.0");
 	SteamGameServer()->LogOnAnonymous();
+
+	spdlog::info("Initializing Steam packet reader thread");
+	std::thread packetThread(steamPacketThread);
+	packetThread.detach();
 
 	spdlog::info("Initializing websock server on port {}", websockPort);
 	initWebSock(std::to_string(websockPort), websockHost);
