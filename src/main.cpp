@@ -77,6 +77,7 @@ void messageHandler(Server* serv, connection_hdl hdl, Server::message_ptr msg) {
 	CSteamID targetId = std::stoull(msg->get_payload());
 	if (!targetId.IsValid()) {
 		spdlog::warn("Got invalid SteamID to websock");
+		webServer.send(hdl, "", 1, websocketpp::frame::opcode::text);
 		return;
 	}
 
