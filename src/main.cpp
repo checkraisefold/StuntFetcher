@@ -71,7 +71,7 @@ void steamPacketThread() {
 			continue;
 		}
 
-		void* packetData = malloc(packetSize);
+		void* packetData = malloc(packetSize + 8);
 		if (!packetData) {
 			spdlog::error("Malloc failed for received packet!");
 			continue;
@@ -97,8 +97,10 @@ void steamPacketThread() {
 			continue;
 		}
 
+		std::memcpy(reinterpret_cast<char*>(packetData) + packetSize, &steamRemote, 8);
+
 		steamMutex.lock();
-		webServer.send(data->second.hdl, packetData, bytesRead, websocketpp::frame::opcode::binary);
+		webServer.send(data->second.hdl, packetData, packetSize + 8, websocketpp::frame::opcode::binary);
 		currentRequests.erase(data);
 		steamMutex.unlock();
 	}
